@@ -1,7 +1,13 @@
 /**
- * Tiny JSON store — the same `data/*.json` files the PHP version used.
- * Reads are cheap and forgiving (a broken file reads as the fallback), writes go
- * through a temp file + rename so a crash cannot leave half a JSON document.
+ * Tiny JSON store — one document per name, exactly like the PHP build's data/*.json.
+ *
+ * Two backends, chosen by environment:
+ *   • Redis (Upstash REST) when KV_REST_API_URL / KV_REST_API_TOKEN exist — needed on
+ *     Vercel, where the filesystem is read-only and nothing can be written to /var/task.
+ *   • JSON files under DATA_DIR otherwise — local dev, VPS, Docker.
+ *
+ * Reads are forgiving (a broken document reads as the fallback). File writes go through
+ * a temp file + rename so a crash cannot leave half a JSON document.
  */
 
 import { createHash } from "node:crypto";
@@ -9,6 +15,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { config } from "./config";
+import { kvEnabled, kvGet, kvSet } from "./kv";
+
+const KEY_PREFIX = "elportal:";
+
+export function storageBackend(): "redis" | "file" {
+  return kvEnabled() ? "redis" : "file";
+}
 
 export function dataDir(): string {
   return path.isAbsolute(config.dataDir)
@@ -26,8 +39,20 @@ export function dataFile(name: string): string {
 }
 
 export async function storeRead<T>(name: string, fallback: T): Promise<T> {
+  const key = safeName(name);
+
+  if (kvEnabled()) {
+    try {
+      const raw = await kvGet(KEY_PREFIX + key);
+      if (!raw || !raw.trim()) return fallback;
+      return (JSON.parse(raw) ?? fallback) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
   try {
-    const raw = await fs.readFile(dataFile(name), "utf8");
+    const raw = await fs.readFile(dataFile(key), "utf8");
     if (!raw.trim()) return fallback;
     const parsed = JSON.parse(raw);
     return (parsed ?? fallback) as T;
@@ -37,25 +62,31 @@ export async function storeRead<T>(name: string, fallback: T): Promise<T> {
 }
 
 export async function storeWrite(name: string, value: unknown): Promise<void> {
-  const target = dataFile(name);
+  const key = safeName(name);
+  const serialised = JSON.stringify(value, null, 2);
+
+  if (kvEnabled()) {
+    await kvSet(KEY_PREFIX + key, serialised); // throws with a readable message on failure
+    return;
+  }
+
+  const target = dataFile(key);
 
   try {
     await fs.mkdir(path.dirname(target), { recursive: true });
-
     const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
+    await fs.writeFile(tmp, serialised, "utf8");
     await fs.rename(tmp, target);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? "";
 
     if (["EROFS", "EACCES", "EPERM", "ENOENT"].includes(code)) {
-      // Serverless hosts (Vercel) mount the bundle read-only, so nothing can be
-      // persisted. Say that plainly instead of leaking a stack trace to the UI.
+      // Serverless hosts mount the bundle read-only, so nothing can be persisted.
       throw Object.assign(
         new Error(
-          "Storage is read-only on this host, so nothing could be saved. " +
-            "Vercel needs a database (Postgres/KV) or a writable volume — " +
-            "see the README, section 5.",
+          "This host has a read-only filesystem, so nothing could be saved. " +
+            "Add a Redis/KV store (Vercel → Storage → Upstash) so KV_REST_API_URL and " +
+            "KV_REST_API_TOKEN are set, then redeploy.",
         ),
         { status: 503, code },
       );
@@ -73,10 +104,12 @@ export interface BatchSnapshot {
   saved_at: string;
 }
 
+const snapshotName = (batchId: string) =>
+  `batch-${createHash("sha1").update(batchId).digest("hex")}.json`;
+
 /** Where the recipient snapshot of one batch lives (needed for "Run again"). */
 export function batchSnapshotFile(batchId: string): string {
-  const hash = createHash("sha1").update(batchId).digest("hex");
-  return dataFile(`batch-${hash}.json`);
+  return dataFile(snapshotName(batchId));
 }
 
 export async function storeBatchSnapshot(
@@ -90,25 +123,17 @@ export async function storeBatchSnapshot(
     recipients,
     saved_at: new Date().toISOString(),
   };
-  await storeWrite(`batch-${createHash("sha1").update(batchId).digest("hex")}.json`, snapshot);
+
+  await storeWrite(snapshotName(batchId), snapshot);
 }
 
 export async function readBatchSnapshot(batchId: string): Promise<BatchSnapshot | null> {
-  try {
-    const raw = await fs.readFile(batchSnapshotFile(batchId), "utf8");
-    return JSON.parse(raw) as BatchSnapshot;
-  } catch {
-    return null;
-  }
+  return storeRead<BatchSnapshot | null>(snapshotName(batchId), null);
 }
 
 export async function batchSnapshotExists(batchId: string): Promise<boolean> {
-  try {
-    await fs.access(batchSnapshotFile(batchId));
-    return true;
-  } catch {
-    return false;
-  }
+  const snapshot = await readBatchSnapshot(batchId);
+  return Boolean(snapshot && Array.isArray(snapshot.recipients));
 }
 
 /* ----------------------------------------------------------------- types */

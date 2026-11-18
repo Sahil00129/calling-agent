@@ -61,6 +61,7 @@ Everything lives in `.env.local` (already created):
 | `SESSION_SECRET` | signs the session cookie — **change before going online** |
 | `SESSION_HOURS` | idle timeout, default 8 |
 | `DATA_DIR` | JSON store folder, default `data` |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | optional — Upstash Redis, used instead of `data/*.json` (required on Vercel) |
 
 Then open the portal → **Settings**: paste the Agent ID, pick the outbound number, **Save**,
 **Test connection**.
@@ -113,8 +114,16 @@ line number (its digits are already lost).
 
 - Change `ADMIN_PASS` and `SESSION_SECRET`, set `NODE_ENV=production` (cookies become
   `Secure`, so serve it over HTTPS).
-- The JSON store writes to a local folder — fine on a VPS, **not** on a read-only/serverless
-  filesystem. Use a database if you deploy to a platform without a disk.
+- **Storage on Vercel:** the bundle is mounted read-only at `/var/task`, so the file store
+  cannot be used there (`mkdir '/var/task/data'` → ENOENT). Connect a Redis store once:
+
+  Vercel → Project → **Storage** → *Create Database* → **Upstash Redis** → connect to the
+  project. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`, `lib/kv.ts` picks them up,
+  and every document (settings, recipients, campaigns, batch snapshots) is stored there.
+  Redeploy after connecting. Local development needs nothing — without those variables the
+  JSON files under `data/` are used.
+- Serverless note: the concurrency of a single Redis key is fine here (one writer at a time),
+  but this is a document store, not a database — move to Postgres if you ever need queries.
 - The login rate limit lives in process memory, so it resets on restart and is per instance.
 - Same compliance rules as before: outbound calling needs consent, a calling window and
   DND/TRAI compliance. Do not dial purchased lists.
