@@ -39,8 +39,12 @@ export function errorResponse(err: unknown): NextResponse {
   if (err instanceof ApiError) {
     return json({ error: err.message, ...err.extra }, err.status);
   }
+
+  // Plain errors may still carry the status they deserve (e.g. 503 for a read-only disk).
   const message = err instanceof Error ? err.message : "Unexpected error";
-  return json({ error: message }, 500);
+  const status = Number((err as { status?: number })?.status) || 500;
+
+  return json({ error: message }, status);
 }
 
 export async function elRequest(

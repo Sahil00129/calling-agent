@@ -38,11 +38,30 @@ export async function storeRead<T>(name: string, fallback: T): Promise<T> {
 
 export async function storeWrite(name: string, value: unknown): Promise<void> {
   const target = dataFile(name);
-  await fs.mkdir(path.dirname(target), { recursive: true });
 
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
-  await fs.rename(tmp, target);
+  try {
+    await fs.mkdir(path.dirname(target), { recursive: true });
+
+    const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
+    await fs.rename(tmp, target);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+
+    if (["EROFS", "EACCES", "EPERM", "ENOENT"].includes(code)) {
+      // Serverless hosts (Vercel) mount the bundle read-only, so nothing can be
+      // persisted. Say that plainly instead of leaking a stack trace to the UI.
+      throw Object.assign(
+        new Error(
+          "Storage is read-only on this host, so nothing could be saved. " +
+            "Vercel needs a database (Postgres/KV) or a writable volume — " +
+            "see the README, section 5.",
+        ),
+        { status: 503, code },
+      );
+    }
+    throw err;
+  }
 }
 
 /* --------------------------------------------------------------- batches */
