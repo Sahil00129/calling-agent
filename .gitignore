@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+*.log
+.env.local
+.env*.local
+next-env.d.ts
+.DS_Store
+
+# JSON store — hold phone numbers, keep out of git
+data/*.json
+!data/settings.sample.json

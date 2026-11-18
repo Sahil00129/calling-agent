@@ -1,0 +1,282 @@
+<link rel="stylesheet" href="/assets/portal.css?v=7" />
+<div class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 13.5a7.5 7.5 0 0 1 15 0" />
+        <rect x="9" y="13" width="6" height="5" rx="2" />
+        <path d="M19.5 13.5v2a2.5 2.5 0 0 1-2.5 2.5h-1" />
+      </svg>
+    </span>
+    <span class="brand-text"><strong>Voice portal</strong><span>ElevenLabs agents</span></span>
+  </div>
+  <div class="tabs">
+    <button class="tab" data-view="quick">Quick call</button>
+    <button class="tab" data-view="dialer">Excel → calls</button>
+    <button class="tab" data-view="calls">Calls &amp; recordings</button>
+    <button class="tab" data-view="settings">Settings</button>
+    <a class="tab" href="/test" title="Widget / SDK test harness">Test page ↗</a>
+  </div>
+  {{ACCOUNT}}
+</div>
+
+<div class="wrap">
+
+  <div class="banner" id="banner"></div>
+
+  <!-- ------------------------------------------------------------ quick -->
+  <section class="view active" id="view-quick">
+    <div class="card">
+      <div class="card-head">
+        <h2>Quick call</h2>
+        <span class="pill" id="quickState">ready</span>
+      </div>
+      <p class="sub">Type a number and talk — no spreadsheet needed. Browser mode is free and good for testing the prompt; phone mode places a real, billed call.</p>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Phone number</span>
+          <input type="tel" id="quickPhone" placeholder="9876543210 or +919876543210" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Label (optional)</span>
+          <input type="text" id="quickLabel" placeholder="e.g. Ramesh — payment reminder" autocomplete="off" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Dynamic variables (optional, one per line — <code>name=value</code>)</span>
+        <textarea id="quickVars" rows="3" spellcheck="false" placeholder="customer_name=Ramesh&#10;village_name=Baldwara&#10;due_amount=4500"></textarea>
+      </label>
+
+      <div class="row">
+        <button id="quickBrowser">Test in browser</button>
+        <button class="secondary" id="quickPhoneBtn">Call on phone</button>
+        <button class="ghost" id="quickEnd" style="display:none;">End call</button>
+        <span class="muted small" id="quickHint">10-digit numbers get +91 automatically.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Recent numbers</h2>
+        <button class="ghost small" id="clearRecent">Clear</button>
+      </div>
+      <p class="sub" style="margin-bottom:10px;">Every number you called from this portal. Click one to reuse it, or dial again directly.</p>
+      <div class="recent" id="recentList">
+        <div class="recent-empty">Loading…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ----------------------------------------------------------- dialer -->
+  <section class="view" id="view-dialer">
+    <div class="card">
+      <div class="card-head">
+        <h2>1 · Import recipients</h2>
+        <span class="muted small" id="fileInfo"></span>
+      </div>
+      <p class="sub">CSV or XLSX. A <code>phone_number</code> column is required (name / mobile / contact also detected). Every other column is passed to the agent as a dynamic variable.</p>
+
+      <label class="dropzone" id="dropzone" for="fileInput">
+        <strong>Choose a file</strong> or drop it here<br />
+        <span class="small">.csv, .xlsx · max 10 MB · 5000 rows · phone as 918219791047 or +918219791047</span>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,text/csv" hidden />
+      </label>
+
+      <div class="stat-row" id="uploadStats" style="display:none;">
+        <div class="stat"><b id="statValid">0</b>valid numbers</div>
+        <div class="stat"><b id="statSkipped">0</b>skipped</div>
+        <div class="stat file"><b id="statFile">—</b>file</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>2 · Choose how to call</h2></div>
+      <p class="sub">Browser mode talks from this computer — no telecom cost, good for testing. Phone mode submits a real outbound batch through ElevenLabs.</p>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Mode</span>
+          <select id="mode">
+            <option value="browser">Browser calls (one by one, from this tab)</option>
+            <option value="phone">Real phone calls (ElevenLabs batch)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Batch name</span>
+          <input type="text" id="callName" placeholder="e.g. Payment reminder — Nov" />
+        </label>
+      </div>
+
+      <div class="grid-3" id="phoneOptions" style="display:none;">
+        <label class="field">
+          <span>Outbound number</span>
+          <select id="phoneNumber"></select>
+        </label>
+        <label class="field">
+          <span>Call only first N rows</span>
+          <input type="number" id="batchLimit" min="1" step="1" placeholder="all rows" />
+        </label>
+        <label class="field">
+          <span>Start at (optional)</span>
+          <input type="text" id="scheduleAt" placeholder="2026-11-13 10:00" />
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="startBatch">Start phone batch</button>
+        <button class="secondary" id="clearRecipients">Clear list</button>
+        <span class="muted small" id="dialerHint"></span>
+      </div>
+    </div>
+
+    <div class="card" id="recipientsCard" style="display:none;">
+      <div class="card-head">
+        <h2>3 · Recipients</h2>
+        <span class="muted small" id="recipientsCount"></span>
+      </div>
+      <div class="table-scroll" style="max-height:440px;overflow-y:auto;">
+        <table>
+          <thead><tr id="recipientsHead"></tr></thead>
+          <tbody id="recipientsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="campaignsCard" style="display:none;">
+      <div class="card-head">
+        <h2>Recent batches</h2>
+        <span class="row" style="gap:8px;">
+          <button class="ghost small" id="refreshBatches">Refresh status</button>
+        </span>
+      </div>
+      <p class="sub">A finished batch cannot be restarted in place — <b>Run again</b> sends the same saved number list as a new batch.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Numbers</th><th>Progress</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="campaignsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ calls -->
+  <section class="view" id="view-calls">
+    <div class="card">
+      <div class="card-head">
+        <h2>Calls &amp; recordings</h2>
+        <span class="muted small" id="callsMeta"></span>
+      </div>
+      <p class="sub">Every conversation in the account — portal calls, batches and dashboard calls. Click a row for the recording, transcript and summary.</p>
+      <div class="filterbar">
+        <input type="search" id="callSearch" placeholder="Search summary or conversation id…" />
+        <select id="callStatus">
+          <option value="">All statuses</option>
+          <option value="done">done</option>
+          <option value="failed">failed</option>
+          <option value="in-progress">in-progress</option>
+          <option value="processing">processing</option>
+          <option value="initiated">initiated</option>
+        </select>
+        <label class="check"><input type="checkbox" id="autoRefresh" checked /> Auto-refresh</label>
+        <span class="spacer"></span>
+        <button class="secondary" id="refreshCalls">Refresh</button>
+        <button class="ghost" id="loadMore" disabled>Load more</button>
+      </div>
+    </div>
+
+    <div class="calls-layout">
+      <div class="card" style="margin:0;">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Dir</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Summary</th>
+              </tr>
+            </thead>
+            <tbody id="callsBody">
+              <tr><td colspan="5" class="muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin:0;" id="detailCard">
+        <div class="card-head">
+          <h2>Call detail</h2>
+          <span class="row" style="gap:6px;">
+            <button class="ghost small" id="copyTranscript" disabled>Copy</button>
+            <button class="ghost small" id="downloadTranscript" disabled>Download</button>
+          </span>
+        </div>
+        <div class="detail-empty" id="detailEmpty">Select a call on the left.</div>
+        <div id="detailBody" style="display:none;">
+          <div class="row" style="justify-content:space-between;">
+            <strong class="mono" id="detailId"></strong>
+            <span class="chip" id="detailStatus"></span>
+          </div>
+          <div class="muted small" style="margin-top:6px;" id="detailMeta"></div>
+
+          <div id="audioWrap" style="display:none;">
+            <audio id="audioPlayer" controls preload="none"></audio>
+          </div>
+          <div class="muted small" id="audioMissing" style="display:none;margin-top:10px;">No recording stored for this call.</div>
+
+          <div class="transcript" id="transcript"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------- settings -->
+  <section class="view" id="view-settings">
+    <div class="card">
+      <div class="card-head"><h2>Connection</h2></div>
+      <p class="sub">The API key stays in <code>.env.local</code> on the server. Agent id and default number are stored in <code>data/settings.json</code>.</p>
+
+      <p id="keyState" class="muted small">Checking API key…</p>
+
+      <label class="field" style="margin-top:14px;">
+        <span>Agent ID</span>
+        <input type="text" id="agentId" placeholder="agent_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Default outbound number (for phone calls)</span>
+        <select id="phoneNumberSetting">
+          <option value="">— none —</option>
+        </select>
+      </label>
+
+      <div class="row">
+        <button id="saveSettings">Save</button>
+        <button class="secondary" id="testConnection">Test connection</button>
+        <button class="ghost" id="reloadNumbers">Reload numbers</button>
+      </div>
+
+      <div class="result" id="testResult" style="display:none;"></div>
+
+      <p class="muted small" style="margin-top:12px;">
+        Real phone calls need a number added in ElevenLabs (Twilio native integration or SIP trunk).
+        Without one, only browser calls work.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Local data</h2></div>
+      <p class="sub">Everything below lives in <code>data/</code> on this machine — no database.</p>
+      <div class="row">
+        <button class="ghost small" id="clearRecipientsFromSettings">Clear recipient list</button>
+        <button class="ghost small" id="clearRecentFromSettings">Clear recent numbers</button>
+      </div>
+    </div>
+  </section>
+
+</div>
